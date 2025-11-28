@@ -23,10 +23,11 @@ const Whiteboard = () => {
     }
   }, [user, authLoading, navigate]);
 
+  // Load room data
   useEffect(() => {
-    if (!roomId || !user) return;
+    if (!roomId || !user?.id) return;
 
-    let isSubscribed = true;
+    let isActive = true;
 
     const loadRoomData = async () => {
       try {
@@ -38,7 +39,7 @@ const Whiteboard = () => {
           .single();
 
         if (roomError) throw roomError;
-        if (isSubscribed) setRoomName(room.name);
+        if (isActive) setRoomName(room.name);
 
         // Fetch initial shapes
         const { data: shapesData, error: shapesError } = await supabase
@@ -49,17 +50,17 @@ const Whiteboard = () => {
         if (shapesError) throw shapesError;
 
         // Load shapes into store
-        if (shapesData && isSubscribed) {
+        if (shapesData && isActive) {
           store.mergeRemoteChanges(() => {
             const shapes = shapesData.map(s => s.data as TLRecord);
             store.put(shapes);
           });
         }
 
-        if (isSubscribed) setLoading(false);
+        if (isActive) setLoading(false);
       } catch (error: any) {
         console.error('Error loading room:', error);
-        if (isSubscribed) {
+        if (isActive) {
           toast({
             title: "Error",
             description: "Failed to load room",
@@ -72,7 +73,16 @@ const Whiteboard = () => {
 
     loadRoomData();
 
-    // Subscribe to changes
+    return () => {
+      isActive = false;
+    };
+  }, [roomId, user?.id, navigate, toast, store]);
+
+  // Handle Realtime Subscription
+  useEffect(() => {
+    if (!roomId || !user?.id) return;
+
+    console.log('Setting up subscription for room:', roomId);
     const channel = supabase
       .channel(`room:${roomId}`)
       .on(
@@ -84,14 +94,16 @@ const Whiteboard = () => {
           filter: `room_id=eq.${roomId}`
         },
         (payload) => {
-          if (!isSubscribed) return;
+          console.log('Received Realtime Payload:', payload);
 
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            console.log('Processing INSERT/UPDATE:', payload.new);
             const newShape = payload.new.data as TLRecord;
             store.mergeRemoteChanges(() => {
               store.put([newShape]);
             });
           } else if (payload.eventType === 'DELETE') {
+            console.log('Processing DELETE:', payload.old);
             const deletedId = payload.old.id;
             store.mergeRemoteChanges(() => {
               store.remove([deletedId as any]);
@@ -99,54 +111,78 @@ const Whiteboard = () => {
           }
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        console.log('Subscription Status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to room changes');
+        }
+        if (status === 'CHANNEL_ERROR') {
+          console.error('Subscription channel error');
+        }
+        if (status === 'TIMED_OUT') {
+          console.error('Subscription timed out');
+        }
+      });
 
-    // Listen to local changes and sync
+    return () => {
+      console.log('Cleaning up subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [roomId, user?.id, store]);
+
+  // Handle Local Changes
+  useEffect(() => {
+    if (!roomId || !user?.id) return;
+
     const handleChange = (event: any) => {
       // Filter out ephemeral changes (cursor, selection, etc)
       // We only want to sync document changes
       Object.values(event.changes.added).forEach(async (record: any) => {
         if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
 
-        await supabase
+        const { error } = await supabase
           .from('whiteboard_shapes')
           .upsert({
             id: record.id,
             room_id: roomId,
             data: record as any
           });
+
+        if (error) console.error('Error adding shape:', error);
       });
 
       Object.values(event.changes.updated).forEach(async (record: any) => {
         if (record[1].typeName === 'instance' || record[1].typeName === 'camera' || record[1].typeName === 'pointer') return;
 
-        await supabase
+        const { error } = await supabase
           .from('whiteboard_shapes')
           .upsert({
             id: record[1].id,
             room_id: roomId,
             data: record[1] as any
           });
+
+        if (error) console.error('Error updating shape:', error);
       });
 
       Object.values(event.changes.removed).forEach(async (record: any) => {
         if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
 
-        await supabase
+        const { error } = await supabase
           .from('whiteboard_shapes')
           .delete()
           .eq('id', record.id);
+
+        if (error) console.error('Error deleting shape:', error);
       });
     };
 
     const cleanup = store.listen(handleChange, { source: 'user', scope: 'document' });
 
     return () => {
-      isSubscribed = false;
       cleanup();
-      supabase.removeChannel(channel);
     };
-  }, [roomId, user, store, navigate, toast]);
+  }, [roomId, user?.id, store]);
 
   if (authLoading || loading) {
     return (
