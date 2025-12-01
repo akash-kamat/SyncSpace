@@ -3,13 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Plus, LogOut, Users, Clock, Trash2 } from 'lucide-react';
+import { Plus, LogOut, Users, Clock, Trash2, LayoutGrid, ArrowRight, Search } from 'lucide-react';
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import { ModeToggle } from "@/components/mode-toggle";
 
 interface Room {
   id: string;
@@ -176,29 +179,48 @@ const Dashboard = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <div className="container mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-12 animate-in fade-in slide-in-from-top-4 duration-500">
-          <div>
-            <h1 className="text-4xl font-bold text-primary mb-2 tracking-tight">
-              SyncSpace
-            </h1>
-            <p className="text-muted-foreground text-lg">
-              Welcome back, {user?.email}
-            </p>
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      {/* Background decoration */}
+      <div className="absolute inset-0 bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]"></div>
+      <div className="absolute left-0 right-0 top-0 -z-10 m-auto h-[310px] w-[310px] rounded-full bg-primary/20 opacity-20 blur-[100px]"></div>
+
+      <div className="container mx-auto px-4 py-8 relative z-10 max-w-6xl">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row items-center justify-between mb-12 gap-4 animate-in fade-in slide-in-from-top-4 duration-500">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center">
+              <LayoutGrid className="w-6 h-6 text-primary" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">SyncSpace</h1>
+              <p className="text-sm text-muted-foreground">Collaborate in real-time</p>
+            </div>
           </div>
-          <Button variant="outline" onClick={handleSignOut} className="hover:bg-destructive/10 hover:text-destructive transition-colors">
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
+
+          <div className="flex items-center gap-4">
+            <ModeToggle />
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/50 rounded-full border border-border/50">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className="text-[10px]">{user?.email?.[0].toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <span className="text-xs font-medium text-muted-foreground">{user?.email}</span>
+            </div>
+            <Button variant="ghost" size="sm" onClick={handleSignOut} className="text-muted-foreground hover:text-destructive">
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          </div>
         </div>
 
-        <div className="mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+        {/* Action Bar */}
+        <div className="flex items-center justify-between mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500 delay-150">
+          <h2 className="text-xl font-semibold tracking-tight">Your Rooms</h2>
+
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-primary hover:bg-primary/90 transition-all shadow-lg hover:shadow-primary/25 h-12 px-6 text-lg">
-                <Plus className="w-5 h-5 mr-2" />
-                Create New Room
+              <Button className="bg-primary hover:bg-primary/90 shadow-lg shadow-primary/20 transition-all">
+                <Plus className="w-4 h-4 mr-2" />
+                New Room
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-[425px]">
@@ -232,58 +254,59 @@ const Dashboard = () => {
           </Dialog>
         </div>
 
+        {/* Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-8 duration-700 delay-300">
-          {rooms.length === 0 ? (
-            <Card className="col-span-full border-dashed border-2 bg-muted/50">
-              <CardContent className="flex flex-col items-center justify-center py-16">
-                <Users className="w-16 h-16 text-muted-foreground/50 mb-4" />
-                <p className="text-muted-foreground text-center text-lg">
-                  No rooms yet. Create your first whiteboard room to get started!
-                </p>
+          {/* Create New Card (First Item) */}
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <div className="group relative flex flex-col items-center justify-center h-[280px] rounded-xl border-2 border-dashed border-muted-foreground/25 hover:border-primary/50 bg-muted/5 hover:bg-muted/10 transition-all cursor-pointer">
+                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
+                  <Plus className="w-6 h-6 text-primary" />
+                </div>
+                <h3 className="font-semibold text-lg">Create New Room</h3>
+                <p className="text-sm text-muted-foreground">Start a new whiteboard session</p>
+              </div>
+            </DialogTrigger>
+          </Dialog>
+
+          {/* Room Cards */}
+          {rooms.map(room => (
+            <Card key={room.id} className="group overflow-hidden border-border/40 bg-card/50 backdrop-blur-sm hover:shadow-xl hover:border-primary/20 transition-all duration-300 flex flex-col h-[280px]">
+              {/* Gradient Placeholder */}
+              <div className="h-32 w-full bg-gradient-to-br from-primary/5 via-primary/10 to-transparent relative group-hover:from-primary/10 group-hover:via-primary/20 transition-colors">
+                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {user?.id === room.created_by && (
+                    <Button variant="destructive" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); setRoomToDelete(room.id); }}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+                <div className="absolute bottom-3 left-4">
+                  <Badge variant="secondary" className="bg-background/80 backdrop-blur-sm shadow-sm">
+                    <Clock className="w-3 h-3 mr-1" />
+                    {new Date(room.created_at).toLocaleDateString()}
+                  </Badge>
+                </div>
+              </div>
+
+              <CardContent className="flex-1 p-5">
+                <h3 className="font-semibold text-lg mb-2 truncate group-hover:text-primary transition-colors">{room.name}</h3>
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Avatar className="h-5 w-5">
+                    <AvatarFallback className="text-[10px]">{room.profiles?.display_name?.[0] || '?'}</AvatarFallback>
+                  </Avatar>
+                  <span className="truncate">Created by {room.profiles?.display_name || 'Unknown'}</span>
+                </div>
               </CardContent>
+
+              <CardFooter className="p-5 pt-0">
+                <Button className="w-full group-hover:bg-primary group-hover:text-primary-foreground" variant="secondary" onClick={() => navigate(`/room/${room.id}`)}>
+                  Enter Room
+                  <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                </Button>
+              </CardFooter>
             </Card>
-          ) : (
-            rooms.map((room) => (
-              <Card
-                key={room.id}
-                className="group hover:shadow-xl transition-all duration-300 border-border/50 hover:border-primary/50 bg-card/50 backdrop-blur-sm"
-              >
-                <CardHeader className="pb-3">
-                  <CardTitle className="flex items-center justify-between gap-2 text-xl">
-                    <div
-                      className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors"
-                      onClick={() => navigate(`/room/${room.id}`)}
-                    >
-                      <Users className="w-5 h-5 text-primary shrink-0" />
-                      <span className="truncate">{room.name}</span>
-                    </div>
-                    {user?.id === room.created_by && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setRoomToDelete(room.id);
-                        }}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    )}
-                  </CardTitle>
-                  <CardDescription className="flex items-center gap-2 mt-2 text-xs">
-                    <Clock className="w-3 h-3" />
-                    Created {new Date(room.created_at).toLocaleDateString()}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">
-                    Created by: <span className="font-medium text-foreground">{room.profiles?.display_name || room.profiles?.email || 'Unknown'}</span>
-                  </p>
-                </CardContent>
-              </Card>
-            ))
-          )}
+          ))}
         </div>
 
         <AlertDialog open={!!roomToDelete} onOpenChange={() => setRoomToDelete(null)}>

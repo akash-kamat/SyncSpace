@@ -223,8 +223,7 @@ export const AiSidebar = forwardRef<AiSidebarRef, AiSidebarProps>(({ open, onOpe
                                 <Avatar className="w-8 h-8 border">
                                     {msg.is_ai ? (
                                         <>
-                                            <AvatarImage src="/placeholder.svg" />
-                                            <AvatarFallback className="bg-purple-100 text-purple-600"><Sparkles className="w-4 h-4" /></AvatarFallback>
+                                            <AvatarFallback className="bg-primary/10 text-primary"><Sparkles className="w-4 h-4" /></AvatarFallback>
                                         </>
                                     ) : (
                                         <AvatarFallback className="bg-blue-100 text-blue-600">

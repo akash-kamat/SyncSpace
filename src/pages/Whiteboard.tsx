@@ -5,9 +5,24 @@ import 'tldraw/tldraw.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles, MessageSquare, User } from 'lucide-react';
 import { AiSidebar, AiSidebarRef } from '@/components/AiSidebar';
 import { useToast } from '@/hooks/use-toast';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { ModeToggle } from "@/components/mode-toggle";
+
+interface ConnectedUser {
+  user_id: string;
+  email?: string;
+  display_name?: string;
+  online_at: string;
+}
 
 const Whiteboard = () => {
   const { roomId } = useParams();
@@ -17,7 +32,7 @@ const Whiteboard = () => {
   const [store] = useState(() => createTLStore({ shapeUtils: defaultShapeUtils }));
   const [loading, setLoading] = useState(true);
   const [roomName, setRoomName] = useState('');
-  const [connectedUsers, setConnectedUsers] = useState(0);
+  const [connectedUsers, setConnectedUsers] = useState<ConnectedUser[]>([]);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [retryTrigger, setRetryTrigger] = useState(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
@@ -170,20 +185,25 @@ const Whiteboard = () => {
         .on('presence', { event: 'sync' }, () => {
           try {
             const newState = channel.presenceState();
-            const count = Object.keys(newState).length;
-            console.log('Presence sync:', count, newState);
-            setConnectedUsers(count);
+            const users = Object.values(newState).flat() as unknown as ConnectedUser[];
+            console.log('Presence sync:', users);
+            setConnectedUsers(users);
           } catch (error) {
             console.error('Error syncing presence:', error);
           }
         })
         .on('presence', { event: 'join' }, ({ key, newPresences }) => {
           console.log('User joined:', key, newPresences);
-          setConnectedUsers((prev) => prev + 1);
+          setConnectedUsers((prev) => {
+            const newUsers = newPresences as ConnectedUser[];
+            // Avoid duplicates
+            const uniqueUsers = [...prev, ...newUsers].filter((v, i, a) => a.findIndex(t => t.user_id === v.user_id) === i);
+            return uniqueUsers;
+          });
         })
         .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
           console.log('User left:', key, leftPresences);
-          setConnectedUsers((prev) => Math.max(0, prev - 1));
+          setConnectedUsers((prev) => prev.filter(u => !(leftPresences as ConnectedUser[]).some(lp => lp.user_id === u.user_id)));
         })
         .subscribe(async (status) => {
           console.log('Subscription Status:', status);
@@ -193,7 +213,9 @@ const Whiteboard = () => {
             retryCount = 0; // Reset retries on success
             await channel.track({
               online_at: new Date().toISOString(),
-              user_id: user.id
+              user_id: user.id,
+              email: user.email,
+              display_name: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Anonymous'
             });
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             console.error(`Subscription error: ${status}`);
@@ -358,8 +380,9 @@ const Whiteboard = () => {
                 <RefreshCcw className={`w-3 h-3 ${connectionStatus === 'connecting' ? 'animate-spin' : ''}`} />
               </Button>
               <span className="text-muted-foreground/30">|</span>
+              <span className="text-muted-foreground/30">|</span>
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 className="gap-2 h-7 text-xs"
                 onClick={() => aiSidebarRef.current?.analyze()}
@@ -368,10 +391,43 @@ const Whiteboard = () => {
                 AI Analyze
               </Button>
               <span className="text-muted-foreground/30">|</span>
-              <span className="flex items-center gap-1">
-                <Users className="w-3 h-3" />
-                {connectedUsers} online
-              </span>
+
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="sm" className="gap-2 h-7 text-xs hover:bg-muted">
+                    <Users className="w-3 h-3" />
+                    {connectedUsers.length} online
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-60 p-0" align="end">
+                  <div className="p-3 border-b bg-muted/30">
+                    <h4 className="font-medium text-sm">Online Users ({connectedUsers.length})</h4>
+                  </div>
+                  <ScrollArea className="h-[200px]">
+                    <div className="p-2 space-y-1">
+                      {connectedUsers.map((u) => (
+                        <div key={u.user_id} className="flex items-center gap-2 p-2 rounded-md hover:bg-muted/50 text-sm">
+                          <Avatar className="h-6 w-6">
+                            <AvatarFallback className="text-[10px] bg-primary/10 text-primary">
+                              {u.display_name?.[0]?.toUpperCase() || <User className="w-3 h-3" />}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex flex-col overflow-hidden">
+                            <span className="font-medium truncate">{u.display_name}</span>
+                            <span className="text-[10px] text-muted-foreground truncate">{u.email}</span>
+                          </div>
+                          {u.user_id === user?.id && (
+                            <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                              You
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </ScrollArea>
+                </PopoverContent>
+              </Popover>
+
               <span className="text-muted-foreground/30">|</span>
               <Button
                 variant="ghost"
@@ -379,9 +435,11 @@ const Whiteboard = () => {
                 className="gap-2 h-7 text-xs"
                 onClick={() => setAiOpen(!aiOpen)}
               >
-                <MessageSquare className="w-3 h-3 text-purple-500" />
+                <MessageSquare className="w-3 h-3 text-primary" />
                 AI Companion
               </Button>
+              <span className="text-muted-foreground/30">|</span>
+              <ModeToggle />
             </div>
           </div>
         </div>
