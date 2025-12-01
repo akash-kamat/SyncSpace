@@ -7,6 +7,7 @@ import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import Dashboard from "./pages/Dashboard";
 import Whiteboard from "./pages/Whiteboard";
+import TestTldraw from "./pages/TestTldraw";
 import NotFound from "./pages/NotFound";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 
@@ -27,6 +28,7 @@ const App = () => (
               <Whiteboard />
             </ErrorBoundary>
           } />
+          <Route path="/test" element={<TestTldraw />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
