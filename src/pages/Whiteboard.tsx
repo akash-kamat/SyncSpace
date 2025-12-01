@@ -5,7 +5,7 @@ import 'tldraw/tldraw.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, Users } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const Whiteboard = () => {
@@ -16,6 +16,8 @@ const Whiteboard = () => {
   const [store] = useState(() => createTLStore({ shapeUtils: defaultShapeUtils }));
   const [loading, setLoading] = useState(true);
   const [roomName, setRoomName] = useState('');
+  const [connectedUsers, setConnectedUsers] = useState(0);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -94,16 +96,22 @@ const Whiteboard = () => {
           filter: `room_id=eq.${roomId}`
         },
         (payload) => {
-          console.log('Received Realtime Payload:', payload);
+          // console.log('Received Realtime Payload:', payload);
 
           if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            console.log('Processing INSERT/UPDATE:', payload.new);
+            // console.log('Processing INSERT/UPDATE:', payload.new);
             const newShape = payload.new.data as TLRecord;
+
+            // Ignore updates from self to prevent jitter
+            if (payload.new.updated_by === user.id) {
+              return;
+            }
+
             store.mergeRemoteChanges(() => {
               store.put([newShape]);
             });
           } else if (payload.eventType === 'DELETE') {
-            console.log('Processing DELETE:', payload.old);
+            // console.log('Processing DELETE:', payload.old);
             const deletedId = payload.old.id;
             store.mergeRemoteChanges(() => {
               store.remove([deletedId as any]);
@@ -111,16 +119,40 @@ const Whiteboard = () => {
           }
         }
       )
-      .subscribe((status) => {
+      .on('presence', { event: 'sync' }, () => {
+        const newState = channel.presenceState();
+        const count = Object.keys(newState).length;
+        console.log('Presence sync:', count, newState);
+        setConnectedUsers(count);
+      })
+      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+        console.log('User joined:', key, newPresences);
+        setConnectedUsers((prev) => prev + 1);
+      })
+      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+        console.log('User left:', key, leftPresences);
+        setConnectedUsers((prev) => Math.max(0, prev - 1));
+      })
+      .subscribe(async (status) => {
         console.log('Subscription Status:', status);
         if (status === 'SUBSCRIBED') {
           console.log('Successfully subscribed to room changes');
+          setConnectionStatus('connected');
+          await channel.track({
+            online_at: new Date().toISOString(),
+            user_id: user.id
+          });
         }
         if (status === 'CHANNEL_ERROR') {
           console.error('Subscription channel error');
+          setConnectionStatus('disconnected');
         }
         if (status === 'TIMED_OUT') {
           console.error('Subscription timed out');
+          setConnectionStatus('disconnected');
+        }
+        if (status === 'CLOSED') {
+          setConnectionStatus('disconnected');
         }
       });
 
@@ -145,7 +177,8 @@ const Whiteboard = () => {
           .upsert({
             id: record.id,
             room_id: roomId,
-            data: record as any
+            data: record as any,
+            updated_by: user.id
           });
 
         if (error) console.error('Error adding shape:', error);
@@ -159,7 +192,8 @@ const Whiteboard = () => {
           .upsert({
             id: record[1].id,
             room_id: roomId,
-            data: record[1] as any
+            data: record[1] as any,
+            updated_by: user.id
           });
 
         if (error) console.error('Error updating shape:', error);
@@ -209,7 +243,27 @@ const Whiteboard = () => {
           </Button>
           <div>
             <h1 className="text-lg font-semibold">{roomName}</h1>
-            <p className="text-xs text-muted-foreground">Real-time collaborative whiteboard</p>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span className={`flex items-center gap-1.5 ${connectionStatus === 'connected' ? 'text-green-500' :
+                connectionStatus === 'connecting' ? 'text-yellow-500' : 'text-red-500'
+                }`}>
+                <span className="relative flex h-2 w-2">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${connectionStatus === 'connected' ? 'bg-green-500' :
+                    connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+                    }`}></span>
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${connectionStatus === 'connected' ? 'bg-green-500' :
+                    connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+                    }`}></span>
+                </span>
+                {connectionStatus === 'connected' ? 'Connected' :
+                  connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
+              </span>
+              <span className="text-muted-foreground/30">|</span>
+              <span className="flex items-center gap-1">
+                <Users className="w-3 h-3" />
+                {connectedUsers} online
+              </span>
+            </div>
           </div>
         </div>
       </div>
