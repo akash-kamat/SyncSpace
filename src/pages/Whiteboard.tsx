@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Tldraw, createTLStore, defaultShapeUtils, TLRecord } from 'tldraw';
+import { Tldraw, createTLStore, defaultShapeUtils, TLRecord, Editor } from 'tldraw';
 import 'tldraw/tldraw.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Users, RefreshCcw } from 'lucide-react';
+import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles } from 'lucide-react';
+import { AiSidebar } from '@/components/AiSidebar';
 import { useToast } from '@/hooks/use-toast';
 
 const Whiteboard = () => {
@@ -20,6 +21,12 @@ const Whiteboard = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [retryTrigger, setRetryTrigger] = useState(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+
+  // AI State
+  const [editor, setEditor] = useState<Editor | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -202,15 +209,60 @@ const Whiteboard = () => {
   }, [roomId, user?.id, store, retryTrigger]);
 
   const handleManualReconnect = () => {
-    // Force a re-mount of the subscription effect by toggling a key or similar,
-    // but since the logic is inside useEffect, we can't easily call it from outside.
-    // Instead, let's just reload the page for now as a hard refresh is often most reliable for "hit or miss" issues,
-    // OR better, we can just trigger the navigation to the same page which might not do enough.
-    // Actually, the user asked for a "refresh button", and previously said "only after the refresh we can see each other".
-    // So a window.location.reload() might be what they actually want if the internal logic fails.
-    // BUT, let's try to do it gracefully first by re-running the subscription logic.
-    // To do that, we can add a 'retryTrigger' state.
     setRetryTrigger(prev => prev + 1);
+  };
+
+  const handleAnalyze = async () => {
+    if (!editor) return;
+
+    setAiOpen(true);
+    setAiLoading(true);
+    setAiAnalysis(null);
+
+    try {
+      // Get all shapes on current page
+      const shapeIds = Array.from(editor.getCurrentPageShapeIds());
+      if (shapeIds.length === 0) {
+        setAiAnalysis("The canvas appears to be empty. Draw something first!");
+        setAiLoading(false);
+        return;
+      }
+
+      const result = await editor.toImage(shapeIds, {
+        format: 'png',
+        background: true
+      });
+      const blob = result.blob;
+
+      // Convert blob to base64
+      const reader = new FileReader();
+      reader.readAsDataURL(blob);
+      reader.onloadend = async () => {
+        const base64data = reader.result as string;
+
+        try {
+          const { data, error } = await supabase.functions.invoke('gemini-ai', {
+            body: { image: base64data }
+          });
+
+          if (error) throw error;
+          setAiAnalysis(data.analysis);
+        } catch (error) {
+          console.error('AI Analysis error:', error);
+          setAiAnalysis("Sorry, I couldn't analyze the canvas. Please try again.");
+          toast({
+            title: "Error",
+            description: "Failed to analyze canvas",
+            variant: "destructive",
+          });
+        } finally {
+          setAiLoading(false);
+        }
+      };
+    } catch (error) {
+      console.error('Export error:', error);
+      setAiLoading(false);
+    }
   };
 
   // Handle Local Changes
@@ -340,6 +392,16 @@ const Whiteboard = () => {
                 <RefreshCcw className={`w-3 h-3 ${connectionStatus === 'connecting' ? 'animate-spin' : ''}`} />
               </Button>
               <span className="text-muted-foreground/30">|</span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-2 h-7 text-xs"
+                onClick={handleAnalyze}
+              >
+                <Sparkles className="w-3 h-3 text-purple-500" />
+                AI Analyze
+              </Button>
+              <span className="text-muted-foreground/30">|</span>
               <span className="flex items-center gap-1">
                 <Users className="w-3 h-3" />
                 {connectedUsers} online
@@ -348,8 +410,16 @@ const Whiteboard = () => {
           </div>
         </div>
       </div>
-      <div className="flex-1">
-        <Tldraw store={store} />
+      <div className="flex-1 flex overflow-hidden relative">
+        <div className="flex-1 relative">
+          <Tldraw store={store} onMount={setEditor} />
+        </div>
+        <AiSidebar
+          open={aiOpen}
+          onOpenChange={setAiOpen}
+          loading={aiLoading}
+          analysis={aiAnalysis}
+        />
       </div>
     </div>
   );
