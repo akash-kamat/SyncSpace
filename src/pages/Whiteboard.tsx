@@ -56,7 +56,7 @@ const Whiteboard = () => {
         // Load shapes into store
         if (shapesData && isActive) {
           store.mergeRemoteChanges(() => {
-            const shapes = shapesData.map(s => s.data as TLRecord);
+            const shapes = shapesData.map(s => s.data as unknown as TLRecord);
             store.put(shapes);
           });
         }
@@ -132,6 +132,23 @@ const Whiteboard = () => {
             }
           }
         )
+        .on('broadcast', { event: 'update' }, ({ payload }) => {
+          // console.log('Received Broadcast:', payload);
+          if (payload.updated_by === user.id) return;
+
+          const newShape = payload.data as TLRecord;
+          store.mergeRemoteChanges(() => {
+            store.put([newShape]);
+          });
+        })
+        .on('broadcast', { event: 'delete' }, ({ payload }) => {
+          if (payload.updated_by === user.id) return;
+
+          const deletedId = payload.id;
+          store.mergeRemoteChanges(() => {
+            store.remove([deletedId]);
+          });
+        })
         .on('presence', { event: 'sync' }, () => {
           const newState = channel.presenceState();
           const count = Object.keys(newState).length;
@@ -216,6 +233,13 @@ const Whiteboard = () => {
           });
 
         if (error) console.error('Error adding shape:', error);
+
+        // Broadcast change
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'update',
+          payload: { data: record, updated_by: user.id }
+        });
       });
 
       Object.values(event.changes.updated).forEach(async (record: any) => {
@@ -231,6 +255,13 @@ const Whiteboard = () => {
           });
 
         if (error) console.error('Error updating shape:', error);
+
+        // Broadcast change
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'update',
+          payload: { data: record[1], updated_by: user.id }
+        });
       });
 
       Object.values(event.changes.removed).forEach(async (record: any) => {
@@ -242,6 +273,13 @@ const Whiteboard = () => {
           .eq('id', record.id);
 
         if (error) console.error('Error deleting shape:', error);
+
+        // Broadcast change
+        channelRef.current?.send({
+          type: 'broadcast',
+          event: 'delete',
+          payload: { id: record.id, updated_by: user.id }
+        });
       });
     };
 
