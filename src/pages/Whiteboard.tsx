@@ -211,7 +211,7 @@ const Whiteboard = () => {
       channelRef.current = channel;
     };
 
-    // setupSubscription();
+    setupSubscription();
 
     return () => {
       console.log('Cleaning up subscription');
@@ -388,7 +388,19 @@ const Whiteboard = () => {
       </div>
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative min-h-[500px]">
-          <Tldraw store={store} onMount={setEditor} />
+          <Tldraw
+            store={store}
+            onMount={setEditor}
+            components={{
+              ErrorFallback: ({ error }) => (
+                <div className="p-4 bg-red-50 text-red-500">
+                  <h2 className="font-bold">Tldraw Crashed</h2>
+                  <pre className="text-xs mt-2">{error.message}</pre>
+                  <pre className="text-xs mt-2">{error.stack}</pre>
+                </div>
+              )
+            }}
+          />
         </div>
         <AiSidebar
           ref={aiSidebarRef}
