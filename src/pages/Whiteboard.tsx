@@ -386,18 +386,18 @@ const Whiteboard = () => {
           </div>
         </div>
       </div>
-      <div className="flex-1 flex overflow-hidden relative">
-        <div className="flex-1 relative min-h-[500px]">
+      <div className="flex-1 flex overflow-hidden relative border-4 border-red-500">
+        <div className="flex-1 relative min-h-[500px] border-4 border-blue-500">
           <Tldraw store={store} onMount={setEditor} />
         </div>
-        <AiSidebar
+        {/* <AiSidebar
           ref={aiSidebarRef}
           open={aiOpen}
           onOpenChange={setAiOpen}
           roomId={roomId || ''}
           userId={user?.id || ''}
           editor={editor}
-        />
+        /> */}
       </div>
     </div>
   );
