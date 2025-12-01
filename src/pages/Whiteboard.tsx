@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Tldraw, createTLStore, defaultShapeUtils, TLRecord } from 'tldraw';
 import 'tldraw/tldraw.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Users } from 'lucide-react';
+import { ArrowLeft, Loader2, Users, RefreshCcw } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 
 const Whiteboard = () => {
@@ -18,6 +18,8 @@ const Whiteboard = () => {
   const [roomName, setRoomName] = useState('');
   const [connectedUsers, setConnectedUsers] = useState(0);
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [retryTrigger, setRetryTrigger] = useState(0);
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -84,83 +86,115 @@ const Whiteboard = () => {
   useEffect(() => {
     if (!roomId || !user?.id) return;
 
-    console.log('Setting up subscription for room:', roomId);
-    const channel = supabase
-      .channel(`room:${roomId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'whiteboard_shapes',
-          filter: `room_id=eq.${roomId}`
-        },
-        (payload) => {
-          // console.log('Received Realtime Payload:', payload);
+    let retryCount = 0;
+    const maxRetries = 3;
+    let retryTimeout: NodeJS.Timeout;
 
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            // console.log('Processing INSERT/UPDATE:', payload.new);
-            const newShape = payload.new.data as TLRecord;
+    const setupSubscription = () => {
+      // Cleanup existing subscription if any
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
 
-            // Ignore updates from self to prevent jitter
-            if (payload.new.updated_by === user.id) {
-              return;
+      console.log('Setting up subscription for room:', roomId);
+      const channel = supabase
+        .channel(`room:${roomId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'whiteboard_shapes',
+            filter: `room_id=eq.${roomId}`
+          },
+          (payload) => {
+            // console.log('Received Realtime Payload:', payload);
+
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              // console.log('Processing INSERT/UPDATE:', payload.new);
+              const newShape = payload.new.data as TLRecord;
+
+              // Ignore updates from self to prevent jitter
+              if (payload.new.updated_by === user.id) {
+                return;
+              }
+
+              store.mergeRemoteChanges(() => {
+                store.put([newShape]);
+              });
+            } else if (payload.eventType === 'DELETE') {
+              // console.log('Processing DELETE:', payload.old);
+              const deletedId = payload.old.id;
+              store.mergeRemoteChanges(() => {
+                store.remove([deletedId as any]);
+              });
             }
-
-            store.mergeRemoteChanges(() => {
-              store.put([newShape]);
-            });
-          } else if (payload.eventType === 'DELETE') {
-            // console.log('Processing DELETE:', payload.old);
-            const deletedId = payload.old.id;
-            store.mergeRemoteChanges(() => {
-              store.remove([deletedId as any]);
-            });
           }
-        }
-      )
-      .on('presence', { event: 'sync' }, () => {
-        const newState = channel.presenceState();
-        const count = Object.keys(newState).length;
-        console.log('Presence sync:', count, newState);
-        setConnectedUsers(count);
-      })
-      .on('presence', { event: 'join' }, ({ key, newPresences }) => {
-        console.log('User joined:', key, newPresences);
-        setConnectedUsers((prev) => prev + 1);
-      })
-      .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
-        console.log('User left:', key, leftPresences);
-        setConnectedUsers((prev) => Math.max(0, prev - 1));
-      })
-      .subscribe(async (status) => {
-        console.log('Subscription Status:', status);
-        if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to room changes');
-          setConnectionStatus('connected');
-          await channel.track({
-            online_at: new Date().toISOString(),
-            user_id: user.id
-          });
-        }
-        if (status === 'CHANNEL_ERROR') {
-          console.error('Subscription channel error');
-          setConnectionStatus('disconnected');
-        }
-        if (status === 'TIMED_OUT') {
-          console.error('Subscription timed out');
-          setConnectionStatus('disconnected');
-        }
-        if (status === 'CLOSED') {
-          setConnectionStatus('disconnected');
-        }
-      });
+        )
+        .on('presence', { event: 'sync' }, () => {
+          const newState = channel.presenceState();
+          const count = Object.keys(newState).length;
+          console.log('Presence sync:', count, newState);
+          setConnectedUsers(count);
+        })
+        .on('presence', { event: 'join' }, ({ key, newPresences }) => {
+          console.log('User joined:', key, newPresences);
+          setConnectedUsers((prev) => prev + 1);
+        })
+        .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
+          console.log('User left:', key, leftPresences);
+          setConnectedUsers((prev) => Math.max(0, prev - 1));
+        })
+        .subscribe(async (status) => {
+          console.log('Subscription Status:', status);
+          if (status === 'SUBSCRIBED') {
+            console.log('Successfully subscribed to room changes');
+            setConnectionStatus('connected');
+            retryCount = 0; // Reset retries on success
+            await channel.track({
+              online_at: new Date().toISOString(),
+              user_id: user.id
+            });
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error(`Subscription error: ${status}`);
+            setConnectionStatus('disconnected');
+            if (retryCount < maxRetries) {
+              retryCount++;
+              console.log(`Retrying connection (${retryCount}/${maxRetries})...`);
+              retryTimeout = setTimeout(setupSubscription, 2000 * retryCount);
+            }
+          } else if (status === 'CLOSED') {
+            setConnectionStatus('disconnected');
+          }
+        });
+
+      channelRef.current = channel;
+    };
+
+    setupSubscription();
 
     return () => {
       console.log('Cleaning up subscription');
-      supabase.removeChannel(channel);
+      clearTimeout(retryTimeout);
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
-  }, [roomId, user?.id, store]);
+  }, [roomId, user?.id, store, retryTrigger]);
+
+  const handleManualReconnect = () => {
+    // Force a re-mount of the subscription effect by toggling a key or similar,
+    // but since the logic is inside useEffect, we can't easily call it from outside.
+    // Instead, let's just reload the page for now as a hard refresh is often most reliable for "hit or miss" issues,
+    // OR better, we can just trigger the navigation to the same page which might not do enough.
+    // Actually, the user asked for a "refresh button", and previously said "only after the refresh we can see each other".
+    // So a window.location.reload() might be what they actually want if the internal logic fails.
+    // BUT, let's try to do it gracefully first by re-running the subscription logic.
+    // To do that, we can add a 'retryTrigger' state.
+    setRetryTrigger(prev => prev + 1);
+  };
 
   // Handle Local Changes
   useEffect(() => {
@@ -258,6 +292,15 @@ const Whiteboard = () => {
                 {connectionStatus === 'connected' ? 'Connected' :
                   connectionStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}
               </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-4 w-4 hover:bg-transparent"
+                onClick={handleManualReconnect}
+                title="Refresh connection"
+              >
+                <RefreshCcw className={`w-3 h-3 ${connectionStatus === 'connecting' ? 'animate-spin' : ''}`} />
+              </Button>
               <span className="text-muted-foreground/30">|</span>
               <span className="flex items-center gap-1">
                 <Users className="w-3 h-3" />
