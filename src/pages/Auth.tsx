@@ -87,7 +87,7 @@ const Auth = () => {
   };
 
   return (
-    <div className="min-h-screen w-full relative overflow-hidden bg-background">
+    <div className="dark min-h-screen w-full relative overflow-hidden bg-background text-foreground">
       {/* Background Layer */}
       <div className="absolute inset-0 z-0">
         <FloatingLines

@@ -6,10 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
-import { Plus, LogOut, Users, Clock, Trash2, LayoutGrid, ArrowRight, Search } from 'lucide-react';
+import { Plus, LogOut, Users, Clock, Trash2, LayoutGrid, ArrowRight, Search, Lock, Unlock } from 'lucide-react';
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -19,6 +19,7 @@ interface Room {
   name: string;
   created_at: string;
   created_by: string;
+  password?: string | null;
   profiles: {
     display_name: string | null;
     email: string;
@@ -29,9 +30,16 @@ const Dashboard = () => {
   const { user, loading, signOut } = useAuth();
   const [rooms, setRooms] = useState<Room[]>([]);
   const [roomName, setRoomName] = useState('');
+  const [roomPassword, setRoomPassword] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [creatingRoom, setCreatingRoom] = useState(false);
   const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
+
+  // Join Room State
+  const [joinPassword, setJoinPassword] = useState('');
+  const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
+  const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
+
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -102,6 +110,7 @@ const Dashboard = () => {
         .insert({
           name: roomName,
           created_by: user.id,
+          password: roomPassword || null
         })
         .select()
         .single();
@@ -123,6 +132,7 @@ const Dashboard = () => {
       });
 
       setRoomName('');
+      setRoomPassword('');
       setIsDialogOpen(false);
       navigate(`/room/${room.id}`);
     } catch (error: any) {
@@ -159,6 +169,33 @@ const Dashboard = () => {
       });
     } finally {
       setRoomToDelete(null);
+    }
+  };
+
+  const handleJoinRoom = (room: Room) => {
+    if (room.password) {
+      setSelectedRoomId(room.id);
+      setIsJoinDialogOpen(true);
+    } else {
+      navigate(`/room/${room.id}`);
+    }
+  };
+
+  const verifyPasswordAndJoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    const room = rooms.find(r => r.id === selectedRoomId);
+
+    if (room && room.password === joinPassword) {
+      setIsJoinDialogOpen(false);
+      setJoinPassword('');
+      setSelectedRoomId(null);
+      navigate(`/room/${room.id}`);
+    } else {
+      toast({
+        title: "Incorrect Password",
+        description: "Please try again.",
+        variant: "destructive",
+      });
     }
   };
 
@@ -227,7 +264,7 @@ const Dashboard = () => {
               <DialogHeader>
                 <DialogTitle>Create a new whiteboard room</DialogTitle>
                 <DialogDescription>
-                  Give your room a name and start collaborating
+                  Give your room a name and optional password.
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={createRoom} className="space-y-4">
@@ -239,6 +276,17 @@ const Dashboard = () => {
                     value={roomName}
                     onChange={(e) => setRoomName(e.target.value)}
                     required
+                    className="focus-visible:ring-primary"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="roomPassword">Password (Optional)</Label>
+                  <Input
+                    id="roomPassword"
+                    type="password"
+                    placeholder="Leave empty for public room"
+                    value={roomPassword}
+                    onChange={(e) => setRoomPassword(e.target.value)}
                     className="focus-visible:ring-primary"
                   />
                 </div>
@@ -274,9 +322,14 @@ const Dashboard = () => {
             <Card key={room.id} className="group overflow-hidden border-border/40 bg-card/50 backdrop-blur-sm hover:shadow-xl hover:border-primary/20 transition-all duration-300 flex flex-col h-[280px]">
               {/* Gradient Placeholder */}
               <div className="h-32 w-full bg-gradient-to-br from-primary/5 via-primary/10 to-transparent relative group-hover:from-primary/10 group-hover:via-primary/20 transition-colors">
-                <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-3 right-3 flex gap-2">
+                  {room.password && (
+                    <div className="h-8 w-8 rounded-full bg-background/80 backdrop-blur-sm flex items-center justify-center shadow-sm" title="Password Protected">
+                      <Lock className="w-4 h-4 text-primary" />
+                    </div>
+                  )}
                   {user?.id === room.created_by && (
-                    <Button variant="destructive" size="icon" className="h-8 w-8" onClick={(e) => { e.stopPropagation(); setRoomToDelete(room.id); }}>
+                    <Button variant="destructive" size="icon" className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => { e.stopPropagation(); setRoomToDelete(room.id); }}>
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   )}
@@ -300,14 +353,55 @@ const Dashboard = () => {
               </CardContent>
 
               <CardFooter className="p-5 pt-0">
-                <Button className="w-full group-hover:bg-primary group-hover:text-primary-foreground" variant="secondary" onClick={() => navigate(`/room/${room.id}`)}>
-                  Enter Room
-                  <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                <Button className="w-full group-hover:bg-primary group-hover:text-primary-foreground" variant="secondary" onClick={() => handleJoinRoom(room)}>
+                  {room.password ? (
+                    <>
+                      <Lock className="w-4 h-4 mr-2" />
+                      Unlock & Enter
+                    </>
+                  ) : (
+                    <>
+                      Enter Room
+                      <ArrowRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
+                    </>
+                  )}
                 </Button>
               </CardFooter>
             </Card>
           ))}
         </div>
+
+        {/* Join Room Dialog */}
+        <Dialog open={isJoinDialogOpen} onOpenChange={setIsJoinDialogOpen}>
+          <DialogContent className="sm:max-w-[425px]">
+            <DialogHeader>
+              <DialogTitle>Enter Room Password</DialogTitle>
+              <DialogDescription>
+                This room is password protected. Please enter the password to join.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={verifyPasswordAndJoin} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="joinPassword">Password</Label>
+                <Input
+                  id="joinPassword"
+                  type="password"
+                  placeholder="Enter room password"
+                  value={joinPassword}
+                  onChange={(e) => setJoinPassword(e.target.value)}
+                  required
+                  className="focus-visible:ring-primary"
+                  autoFocus
+                />
+              </div>
+              <DialogFooter>
+                <Button type="submit" className="w-full">
+                  Join Room
+                </Button>
+              </DialogFooter>
+            </form>
+          </DialogContent>
+        </Dialog>
 
         <AlertDialog open={!!roomToDelete} onOpenChange={() => setRoomToDelete(null)}>
           <AlertDialogContent>
