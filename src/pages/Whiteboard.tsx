@@ -5,8 +5,8 @@ import 'tldraw/tldraw.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles } from 'lucide-react';
-import { AiSidebar } from '@/components/AiSidebar';
+import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles, MessageSquare } from 'lucide-react';
+import { AiSidebar, AiSidebarRef } from '@/components/AiSidebar';
 import { useToast } from '@/hooks/use-toast';
 
 const Whiteboard = () => {
@@ -21,12 +21,11 @@ const Whiteboard = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [retryTrigger, setRetryTrigger] = useState(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const aiSidebarRef = useRef<AiSidebarRef>(null);
 
   // AI State
   const [editor, setEditor] = useState<Editor | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -212,59 +211,6 @@ const Whiteboard = () => {
     setRetryTrigger(prev => prev + 1);
   };
 
-  const handleAnalyze = async () => {
-    if (!editor) return;
-
-    setAiOpen(true);
-    setAiLoading(true);
-    setAiAnalysis(null);
-
-    try {
-      // Get all shapes on current page
-      const shapeIds = Array.from(editor.getCurrentPageShapeIds());
-      if (shapeIds.length === 0) {
-        setAiAnalysis("The canvas appears to be empty. Draw something first!");
-        setAiLoading(false);
-        return;
-      }
-
-      const result = await editor.toImage(shapeIds, {
-        format: 'png',
-        background: true
-      });
-      const blob = result.blob;
-
-      // Convert blob to base64
-      const reader = new FileReader();
-      reader.readAsDataURL(blob);
-      reader.onloadend = async () => {
-        const base64data = reader.result as string;
-
-        try {
-          const { data, error } = await supabase.functions.invoke('gemini-ai', {
-            body: { image: base64data }
-          });
-
-          if (error) throw error;
-          setAiAnalysis(data.analysis);
-        } catch (error) {
-          console.error('AI Analysis error:', error);
-          setAiAnalysis("Sorry, I couldn't analyze the canvas. Please try again.");
-          toast({
-            title: "Error",
-            description: "Failed to analyze canvas",
-            variant: "destructive",
-          });
-        } finally {
-          setAiLoading(false);
-        }
-      };
-    } catch (error) {
-      console.error('Export error:', error);
-      setAiLoading(false);
-    }
-  };
-
   // Handle Local Changes
   useEffect(() => {
     if (!roomId || !user?.id) return;
@@ -396,7 +342,7 @@ const Whiteboard = () => {
                 variant="outline"
                 size="sm"
                 className="gap-2 h-7 text-xs"
-                onClick={handleAnalyze}
+                onClick={() => aiSidebarRef.current?.analyze()}
               >
                 <Sparkles className="w-3 h-3 text-purple-500" />
                 AI Analyze
@@ -406,6 +352,16 @@ const Whiteboard = () => {
                 <Users className="w-3 h-3" />
                 {connectedUsers} online
               </span>
+              <span className="text-muted-foreground/30">|</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 h-7 text-xs"
+                onClick={() => setAiOpen(!aiOpen)}
+              >
+                <MessageSquare className="w-3 h-3 text-purple-500" />
+                AI Companion
+              </Button>
             </div>
           </div>
         </div>
@@ -415,10 +371,12 @@ const Whiteboard = () => {
           <Tldraw store={store} onMount={setEditor} />
         </div>
         <AiSidebar
+          ref={aiSidebarRef}
           open={aiOpen}
           onOpenChange={setAiOpen}
-          loading={aiLoading}
-          analysis={aiAnalysis}
+          roomId={roomId || ''}
+          userId={user?.id || ''}
+          editor={editor}
         />
       </div>
     </div>
