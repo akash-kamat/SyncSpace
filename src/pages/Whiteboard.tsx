@@ -115,51 +115,67 @@ const Whiteboard = () => {
             filter: `room_id=eq.${roomId}`
           },
           (payload) => {
-            // console.log('Received Realtime Payload:', payload);
+            try {
+              // console.log('Received Realtime Payload:', payload);
 
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              // console.log('Processing INSERT/UPDATE:', payload.new);
-              const newShape = payload.new.data as TLRecord;
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                // console.log('Processing INSERT/UPDATE:', payload.new);
+                const newShape = payload.new.data as TLRecord;
 
-              // Ignore updates from self to prevent jitter
-              if (payload.new.updated_by === user.id) {
-                return;
+                // Ignore updates from self to prevent jitter
+                if (payload.new.updated_by === user.id) {
+                  return;
+                }
+
+                store.mergeRemoteChanges(() => {
+                  store.put([newShape]);
+                });
+              } else if (payload.eventType === 'DELETE') {
+                // console.log('Processing DELETE:', payload.old);
+                const deletedId = payload.old.id;
+                store.mergeRemoteChanges(() => {
+                  store.remove([deletedId as any]);
+                });
               }
-
-              store.mergeRemoteChanges(() => {
-                store.put([newShape]);
-              });
-            } else if (payload.eventType === 'DELETE') {
-              // console.log('Processing DELETE:', payload.old);
-              const deletedId = payload.old.id;
-              store.mergeRemoteChanges(() => {
-                store.remove([deletedId as any]);
-              });
+            } catch (error) {
+              console.error('Error processing Realtime message:', error);
             }
           }
         )
         .on('broadcast', { event: 'update' }, ({ payload }) => {
-          // console.log('Received Broadcast:', payload);
-          if (payload.updated_by === user.id) return;
+          try {
+            // console.log('Received Broadcast:', payload);
+            if (payload.updated_by === user.id) return;
 
-          const newShape = payload.data as TLRecord;
-          store.mergeRemoteChanges(() => {
-            store.put([newShape]);
-          });
+            const newShape = payload.data as TLRecord;
+            store.mergeRemoteChanges(() => {
+              store.put([newShape]);
+            });
+          } catch (error) {
+            console.error('Error processing Broadcast update:', error);
+          }
         })
         .on('broadcast', { event: 'delete' }, ({ payload }) => {
-          if (payload.updated_by === user.id) return;
+          try {
+            if (payload.updated_by === user.id) return;
 
-          const deletedId = payload.id;
-          store.mergeRemoteChanges(() => {
-            store.remove([deletedId]);
-          });
+            const deletedId = payload.id;
+            store.mergeRemoteChanges(() => {
+              store.remove([deletedId]);
+            });
+          } catch (error) {
+            console.error('Error processing Broadcast delete:', error);
+          }
         })
         .on('presence', { event: 'sync' }, () => {
-          const newState = channel.presenceState();
-          const count = Object.keys(newState).length;
-          console.log('Presence sync:', count, newState);
-          setConnectedUsers(count);
+          try {
+            const newState = channel.presenceState();
+            const count = Object.keys(newState).length;
+            console.log('Presence sync:', count, newState);
+            setConnectedUsers(count);
+          } catch (error) {
+            console.error('Error syncing presence:', error);
+          }
         })
         .on('presence', { event: 'join' }, ({ key, newPresences }) => {
           console.log('User joined:', key, newPresences);
@@ -216,69 +232,73 @@ const Whiteboard = () => {
     if (!roomId || !user?.id) return;
 
     const handleChange = (event: any) => {
-      // Filter out ephemeral changes (cursor, selection, etc)
-      // We only want to sync document changes
-      Object.values(event.changes.added).forEach(async (record: any) => {
-        if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
+      try {
+        // Filter out ephemeral changes (cursor, selection, etc)
+        // We only want to sync document changes
+        Object.values(event.changes.added).forEach(async (record: any) => {
+          if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
 
-        const { error } = await supabase
-          .from('whiteboard_shapes')
-          .upsert({
-            id: record.id,
-            room_id: roomId,
-            data: record as any,
-            updated_by: user.id
+          const { error } = await supabase
+            .from('whiteboard_shapes')
+            .upsert({
+              id: record.id,
+              room_id: roomId,
+              data: record as any,
+              updated_by: user.id
+            });
+
+          if (error) console.error('Error adding shape:', error);
+
+          // Broadcast change
+          channelRef.current?.send({
+            type: 'broadcast',
+            event: 'update',
+            payload: { data: record, updated_by: user.id }
           });
-
-        if (error) console.error('Error adding shape:', error);
-
-        // Broadcast change
-        channelRef.current?.send({
-          type: 'broadcast',
-          event: 'update',
-          payload: { data: record, updated_by: user.id }
         });
-      });
 
-      Object.values(event.changes.updated).forEach(async (record: any) => {
-        if (record[1].typeName === 'instance' || record[1].typeName === 'camera' || record[1].typeName === 'pointer') return;
+        Object.values(event.changes.updated).forEach(async (record: any) => {
+          if (record[1].typeName === 'instance' || record[1].typeName === 'camera' || record[1].typeName === 'pointer') return;
 
-        const { error } = await supabase
-          .from('whiteboard_shapes')
-          .upsert({
-            id: record[1].id,
-            room_id: roomId,
-            data: record[1] as any,
-            updated_by: user.id
+          const { error } = await supabase
+            .from('whiteboard_shapes')
+            .upsert({
+              id: record[1].id,
+              room_id: roomId,
+              data: record[1] as any,
+              updated_by: user.id
+            });
+
+          if (error) console.error('Error updating shape:', error);
+
+          // Broadcast change
+          channelRef.current?.send({
+            type: 'broadcast',
+            event: 'update',
+            payload: { data: record[1], updated_by: user.id }
           });
-
-        if (error) console.error('Error updating shape:', error);
-
-        // Broadcast change
-        channelRef.current?.send({
-          type: 'broadcast',
-          event: 'update',
-          payload: { data: record[1], updated_by: user.id }
         });
-      });
 
-      Object.values(event.changes.removed).forEach(async (record: any) => {
-        if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
+        Object.values(event.changes.removed).forEach(async (record: any) => {
+          if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
 
-        const { error } = await supabase
-          .from('whiteboard_shapes')
-          .delete()
-          .eq('id', record.id);
+          const { error } = await supabase
+            .from('whiteboard_shapes')
+            .delete()
+            .eq('id', record.id);
 
-        if (error) console.error('Error deleting shape:', error);
+          if (error) console.error('Error deleting shape:', error);
 
-        // Broadcast change
-        channelRef.current?.send({
-          type: 'broadcast',
-          event: 'delete',
-          payload: { id: record.id, updated_by: user.id }
+          // Broadcast change
+          channelRef.current?.send({
+            type: 'broadcast',
+            event: 'delete',
+            payload: { id: record.id, updated_by: user.id }
+          });
         });
-      });
+      } catch (error) {
+        console.error('Error handling local change:', error);
+      }
     };
 
     const cleanup = store.listen(handleChange, { source: 'user', scope: 'document' });
@@ -367,7 +387,7 @@ const Whiteboard = () => {
         </div>
       </div>
       <div className="flex-1 flex overflow-hidden relative">
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-h-[500px]">
           <Tldraw store={store} onMount={setEditor} />
         </div>
         <AiSidebar
