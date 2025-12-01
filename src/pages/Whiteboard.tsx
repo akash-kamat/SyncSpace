@@ -389,6 +389,7 @@ const Whiteboard = () => {
       <div className="flex-1 flex overflow-hidden relative">
         <div className="flex-1 relative min-h-[500px]">
           <Tldraw
+            licenseKey={import.meta.env.VITE_TLDRAW_LICENSE_KEY}
             store={store}
             onMount={setEditor}
             components={{
