@@ -262,6 +262,54 @@ const Whiteboard = () => {
     setRetryTrigger(prev => prev + 1);
   };
 
+  // Batching Refs
+  const pendingUpdates = useRef<Map<string, any>>(new Map());
+  const pendingDeletes = useRef<Set<string>>(new Set());
+
+  // Flush changes to database periodically
+  useEffect(() => {
+    if (!roomId || !user?.id) return;
+
+    const flushChanges = async () => {
+      // Process Updates
+      if (pendingUpdates.current.size > 0) {
+        const updates = Array.from(pendingUpdates.current.values());
+        pendingUpdates.current.clear(); // Clear immediately to avoid double sending
+
+        const { error } = await supabase
+          .from('whiteboard_shapes')
+          .upsert(updates);
+
+        if (error) {
+          console.error('Error batch saving shapes:', error);
+          // Optionally re-queue failed updates, but for now we'll just log
+        }
+      }
+
+      // Process Deletes
+      if (pendingDeletes.current.size > 0) {
+        const deletes = Array.from(pendingDeletes.current);
+        pendingDeletes.current.clear();
+
+        const { error } = await supabase
+          .from('whiteboard_shapes')
+          .delete()
+          .in('id', deletes);
+
+        if (error) {
+          console.error('Error batch deleting shapes:', error);
+        }
+      }
+    };
+
+    const intervalId = setInterval(flushChanges, 2000); // Flush every 2 seconds
+
+    return () => {
+      clearInterval(intervalId);
+      flushChanges(); // Flush on unmount
+    };
+  }, [roomId, user?.id]);
+
   // Handle Local Changes
   useEffect(() => {
     if (!roomId || !user?.id) return;
@@ -270,21 +318,18 @@ const Whiteboard = () => {
       try {
         // Filter out ephemeral changes (cursor, selection, etc)
         // We only want to sync document changes
-        Object.values(event.changes.added).forEach(async (record: any) => {
+        Object.values(event.changes.added).forEach((record: any) => {
           if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
 
-          const { error } = await supabase
-            .from('whiteboard_shapes')
-            .upsert({
-              id: record.id,
-              room_id: roomId,
-              data: record as any,
-              updated_by: user.id
-            });
+          // Queue for batch save
+          pendingUpdates.current.set(record.id, {
+            id: record.id,
+            room_id: roomId,
+            data: record,
+            updated_by: user.id
+          });
 
-          if (error) console.error('Error adding shape:', error);
-
-          // Broadcast change
+          // Broadcast change immediately for realtime collaboration
           channelRef.current?.send({
             type: 'broadcast',
             event: 'update',
@@ -292,21 +337,18 @@ const Whiteboard = () => {
           });
         });
 
-        Object.values(event.changes.updated).forEach(async (record: any) => {
+        Object.values(event.changes.updated).forEach((record: any) => {
           if (record[1].typeName === 'instance' || record[1].typeName === 'camera' || record[1].typeName === 'pointer') return;
 
-          const { error } = await supabase
-            .from('whiteboard_shapes')
-            .upsert({
-              id: record[1].id,
-              room_id: roomId,
-              data: record[1] as any,
-              updated_by: user.id
-            });
+          // Queue for batch save
+          pendingUpdates.current.set(record[1].id, {
+            id: record[1].id,
+            room_id: roomId,
+            data: record[1],
+            updated_by: user.id
+          });
 
-          if (error) console.error('Error updating shape:', error);
-
-          // Broadcast change
+          // Broadcast change immediately
           channelRef.current?.send({
             type: 'broadcast',
             event: 'update',
@@ -314,17 +356,16 @@ const Whiteboard = () => {
           });
         });
 
-        Object.values(event.changes.removed).forEach(async (record: any) => {
+        Object.values(event.changes.removed).forEach((record: any) => {
           if (record.typeName === 'instance' || record.typeName === 'camera' || record.typeName === 'pointer') return;
 
-          const { error } = await supabase
-            .from('whiteboard_shapes')
-            .delete()
-            .eq('id', record.id);
+          // Remove from pending updates if it was there
+          pendingUpdates.current.delete(record.id);
 
-          if (error) console.error('Error deleting shape:', error);
+          // Queue for batch delete
+          pendingDeletes.current.add(record.id);
 
-          // Broadcast change
+          // Broadcast change immediately
           channelRef.current?.send({
             type: 'broadcast',
             event: 'delete',
