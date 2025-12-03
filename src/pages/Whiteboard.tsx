@@ -17,6 +17,8 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModeToggle } from "@/components/mode-toggle";
 import { RealtimeCursors } from "@/components/RealtimeCursors";
+import { Chat } from '@/components/Chat';
+import { AudioRoom } from '@/components/AudioRoom';
 
 interface ConnectedUser {
   user_id: string;
@@ -39,9 +41,12 @@ const Whiteboard = () => {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const aiSidebarRef = useRef<AiSidebarRef>(null);
 
+
+
   // AI State
   const [editor, setEditor] = useState<Editor | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -434,9 +439,21 @@ const Whiteboard = () => {
                 variant="ghost"
                 size="sm"
                 className="gap-2 h-7 text-xs"
-                onClick={() => setAiOpen(!aiOpen)}
+                onClick={() => setChatOpen(!chatOpen)}
               >
                 <MessageSquare className="w-3 h-3 text-primary" />
+                Chat
+              </Button>
+              <span className="text-muted-foreground/30">|</span>
+              <AudioRoom roomId={roomId || ''} />
+              <span className="text-muted-foreground/30">|</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-2 h-7 text-xs"
+                onClick={() => setAiOpen(!aiOpen)}
+              >
+                <Sparkles className="w-3 h-3 text-purple-500" />
                 AI Companion
               </Button>
               <span className="text-muted-foreground/30">|</span>
@@ -470,6 +487,9 @@ const Whiteboard = () => {
           userId={user?.id || ''}
           editor={editor}
         />
+        {chatOpen && roomId && (
+          <Chat roomId={roomId} onClose={() => setChatOpen(false)} />
+        )}
         {roomId && user?.id && (
           <RealtimeCursors
             roomId={roomId}
