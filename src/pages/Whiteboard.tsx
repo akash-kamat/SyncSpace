@@ -16,6 +16,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModeToggle } from "@/components/mode-toggle";
+import { RealtimeCursors } from "@/components/RealtimeCursors";
 
 interface ConnectedUser {
   user_id: string;
@@ -469,6 +470,13 @@ const Whiteboard = () => {
           userId={user?.id || ''}
           editor={editor}
         />
+        {roomId && user?.id && (
+          <RealtimeCursors
+            roomId={roomId}
+            userId={user.id}
+            userName={user.user_metadata?.display_name || user.email?.split('@')[0] || 'Anonymous'}
+          />
+        )}
       </div>
     </div>
   );
