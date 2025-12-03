@@ -13,6 +13,7 @@ import { Plus, LogOut, Users, Clock, Trash2, LayoutGrid, ArrowRight, Search, Loc
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ModeToggle } from "@/components/mode-toggle";
+import { Footer } from "@/components/Footer";
 
 interface Room {
   id: string;
@@ -346,9 +347,9 @@ const Dashboard = () => {
                 <h3 className="font-semibold text-lg mb-2 truncate group-hover:text-primary transition-colors">{room.name}</h3>
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Avatar className="h-5 w-5">
-                    <AvatarFallback className="text-[10px]">{room.profiles?.display_name?.[0] || '?'}</AvatarFallback>
+                    <AvatarFallback className="text-[10px]">{room.profiles?.display_name?.[0] || room.profiles?.email?.[0]?.toUpperCase() || '?'}</AvatarFallback>
                   </Avatar>
-                  <span className="truncate">Created by {room.profiles?.display_name || 'Unknown'}</span>
+                  <span className="truncate">Created by {room.profiles?.display_name || room.profiles?.email || 'Unknown'}</span>
                 </div>
               </CardContent>
 
@@ -420,7 +421,8 @@ const Dashboard = () => {
           </AlertDialogContent>
         </AlertDialog>
       </div>
-    </div>
+      <Footer />
+    </div >
   );
 };
 
