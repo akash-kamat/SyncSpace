@@ -5,19 +5,18 @@ import 'tldraw/tldraw.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles, MessageSquare, User } from 'lucide-react';
-import { AiSidebar, AiSidebarRef } from '@/components/AiSidebar';
+import { ArrowLeft, Loader2, Users, RefreshCcw, Sparkles, MessageSquare, User, Mic, MicOff } from 'lucide-react';
+import { UnifiedChatSidebar, UnifiedChatSidebarRef } from '@/components/UnifiedChatSidebar';
 import { useToast } from '@/hooks/use-toast';
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ModeToggle } from "@/components/mode-toggle";
 import { RealtimeCursors } from "@/components/RealtimeCursors";
-import { Chat } from '@/components/Chat';
 import { AudioRoom } from '@/components/AudioRoom';
 
 interface ConnectedUser {
@@ -25,6 +24,7 @@ interface ConnectedUser {
   email?: string;
   display_name?: string;
   online_at: string;
+  is_muted?: boolean;
 }
 
 const Whiteboard = () => {
@@ -39,14 +39,12 @@ const Whiteboard = () => {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [retryTrigger, setRetryTrigger] = useState(0);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const aiSidebarRef = useRef<AiSidebarRef>(null);
+  const sidebarRef = useRef<UnifiedChatSidebarRef>(null);
 
-
-
-  // AI State
+  // AI/Chat State
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
 
   useEffect(() => {
     if (!authLoading && !user) {
@@ -137,10 +135,7 @@ const Whiteboard = () => {
           },
           (payload) => {
             try {
-              // console.log('Received Realtime Payload:', payload);
-
               if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-                // console.log('Processing INSERT/UPDATE:', payload.new);
                 const newShape = payload.new.data as TLRecord;
 
                 // Ignore updates from self to prevent jitter
@@ -152,7 +147,6 @@ const Whiteboard = () => {
                   store.put([newShape]);
                 });
               } else if (payload.eventType === 'DELETE') {
-                // console.log('Processing DELETE:', payload.old);
                 const deletedId = payload.old.id;
                 store.mergeRemoteChanges(() => {
                   store.remove([deletedId as any]);
@@ -165,7 +159,6 @@ const Whiteboard = () => {
         )
         .on('broadcast', { event: 'update' }, ({ payload }) => {
           try {
-            // console.log('Received Broadcast:', payload);
             if (payload.updated_by === user.id) return;
 
             const newShape = payload.data as TLRecord;
@@ -221,7 +214,8 @@ const Whiteboard = () => {
               online_at: new Date().toISOString(),
               user_id: user.id,
               email: user.email,
-              display_name: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Anonymous'
+              display_name: user.user_metadata?.display_name || user.email?.split('@')[0] || 'Anonymous',
+              is_muted: isMuted
             });
           } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
             console.error(`Subscription error: ${status}`);
@@ -250,6 +244,19 @@ const Whiteboard = () => {
       }
     };
   }, [roomId, user?.id, store, retryTrigger]);
+
+  // Handle Mute Status Updates
+  useEffect(() => {
+    if (channelRef.current && connectionStatus === 'connected') {
+      channelRef.current.track({
+        online_at: new Date().toISOString(),
+        user_id: user?.id,
+        email: user?.email,
+        display_name: user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Anonymous',
+        is_muted: isMuted
+      });
+    }
+  }, [isMuted, connectionStatus, user]);
 
   const handleManualReconnect = () => {
     setRetryTrigger(prev => prev + 1);
@@ -391,7 +398,7 @@ const Whiteboard = () => {
                 variant="ghost"
                 size="sm"
                 className="gap-2 h-7 text-xs"
-                onClick={() => aiSidebarRef.current?.analyze()}
+                onClick={() => sidebarRef.current?.analyze()}
               >
                 <Sparkles className="w-3 h-3 text-purple-500" />
                 AI Analyze
@@ -405,7 +412,7 @@ const Whiteboard = () => {
                     {connectedUsers.length} online
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent className="w-60 p-0" align="end">
+                <PopoverContent className="w-60 p-0 z-[200]" align="end">
                   <div className="p-3 border-b bg-muted/30">
                     <h4 className="font-medium text-sm">Online Users ({connectedUsers.length})</h4>
                   </div>
@@ -418,12 +425,19 @@ const Whiteboard = () => {
                               {u.display_name?.[0]?.toUpperCase() || <User className="w-3 h-3" />}
                             </AvatarFallback>
                           </Avatar>
-                          <div className="flex flex-col overflow-hidden">
-                            <span className="font-medium truncate">{u.display_name}</span>
+                          <div className="flex flex-col overflow-hidden flex-1">
+                            <div className="flex items-center gap-1">
+                              <span className="font-medium truncate">{u.display_name}</span>
+                              {u.is_muted ? (
+                                <MicOff className="w-3 h-3 text-muted-foreground" />
+                              ) : (
+                                <Mic className="w-3 h-3 text-green-500" />
+                              )}
+                            </div>
                             <span className="text-[10px] text-muted-foreground truncate">{u.email}</span>
                           </div>
                           {u.user_id === user?.id && (
-                            <span className="ml-auto text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+                            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
                               You
                             </span>
                           )}
@@ -435,26 +449,16 @@ const Whiteboard = () => {
               </Popover>
 
               <span className="text-muted-foreground/30">|</span>
+              <AudioRoom roomId={roomId || ''} onMuteChange={setIsMuted} />
+              <span className="text-muted-foreground/30">|</span>
               <Button
                 variant="ghost"
                 size="sm"
                 className="gap-2 h-7 text-xs"
-                onClick={() => setChatOpen(!chatOpen)}
+                onClick={() => setSidebarOpen(!sidebarOpen)}
               >
                 <MessageSquare className="w-3 h-3 text-primary" />
                 Chat
-              </Button>
-              <span className="text-muted-foreground/30">|</span>
-              <AudioRoom roomId={roomId || ''} />
-              <span className="text-muted-foreground/30">|</span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="gap-2 h-7 text-xs"
-                onClick={() => setAiOpen(!aiOpen)}
-              >
-                <Sparkles className="w-3 h-3 text-purple-500" />
-                AI Companion
               </Button>
               <span className="text-muted-foreground/30">|</span>
               <ModeToggle />
@@ -479,17 +483,14 @@ const Whiteboard = () => {
             }}
           />
         </div>
-        <AiSidebar
-          ref={aiSidebarRef}
-          open={aiOpen}
-          onOpenChange={setAiOpen}
+        <UnifiedChatSidebar
+          ref={sidebarRef}
+          open={sidebarOpen}
+          onOpenChange={setSidebarOpen}
           roomId={roomId || ''}
           userId={user?.id || ''}
           editor={editor}
         />
-        {chatOpen && roomId && (
-          <Chat roomId={roomId} onClose={() => setChatOpen(false)} />
-        )}
         {roomId && user?.id && (
           <RealtimeCursors
             roomId={roomId}

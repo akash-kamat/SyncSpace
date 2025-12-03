@@ -30,7 +30,7 @@ const RemoteAudio = ({ stream }: { stream: MediaStream }) => {
     return <audio ref={audioRef} autoPlay playsInline />;
 };
 
-export const AudioRoom = ({ roomId }: { roomId: string }) => {
+export const AudioRoom = ({ roomId, onMuteChange }: { roomId: string; onMuteChange?: (muted: boolean) => void }) => {
     const { user } = useAuth();
     const { toast } = useToast();
     const [isMuted, setIsMuted] = useState(true);
@@ -43,6 +43,7 @@ export const AudioRoom = ({ roomId }: { roomId: string }) => {
     const audioContextRef = useRef<AudioContext | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
     const animationFrameRef = useRef<number | null>(null);
+    const visualizerRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         if (!roomId || !user) return;
@@ -68,7 +69,12 @@ export const AudioRoom = ({ roomId }: { roomId: string }) => {
                     if (!analyserRef.current) return;
                     analyserRef.current.getByteFrequencyData(dataArray);
                     const average = dataArray.reduce((a, b) => a + b) / bufferLength;
-                    setVolume(average);
+
+                    if (visualizerRef.current) {
+                        const height = Math.min(100, average * 1.5);
+                        visualizerRef.current.style.height = `${height}%`;
+                    }
+
                     animationFrameRef.current = requestAnimationFrame(updateVolume);
                 };
                 updateVolume();
@@ -86,7 +92,11 @@ export const AudioRoom = ({ roomId }: { roomId: string }) => {
                         if (to === user.id) {
                             const peerObj = peersRef.current.find(p => p.peerId === from);
                             if (peerObj) {
-                                peerObj.peer.signal(signal);
+                                try {
+                                    peerObj.peer.signal(signal);
+                                } catch (e) {
+                                    console.warn('Error signaling peer:', e);
+                                }
                             } else {
                                 // Incoming connection
                                 const peer = addPeer(signal, from, stream);
@@ -226,7 +236,9 @@ export const AudioRoom = ({ roomId }: { roomId: string }) => {
             userStream.current.getAudioTracks().forEach(track => {
                 track.enabled = !track.enabled;
             });
-            setIsMuted(!isMuted);
+            const newMutedState = !isMuted;
+            setIsMuted(newMutedState);
+            onMuteChange?.(newMutedState);
         }
     };
 
@@ -237,17 +249,18 @@ export const AudioRoom = ({ roomId }: { roomId: string }) => {
             ))}
             <div className="flex items-center gap-2">
                 <Button
-                    variant={isMuted ? "outline" : "default"}
+                    variant={isMuted ? "outline" : "ghost"}
                     size="sm"
-                    className={`gap-2 h-7 text-xs relative overflow-hidden ${!isMuted ? 'bg-red-500 hover:bg-red-600 text-white' : ''}`}
+                    className={`gap-2 h-7 text-xs relative overflow-hidden border ${!isMuted ? 'text-primary border-primary/50' : ''}`}
                     onClick={toggleMute}
                     title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
                 >
                     {/* Visualizer Background */}
                     {!isMuted && (
                         <div
-                            className="absolute bottom-0 left-0 right-0 bg-white/20 transition-all duration-75 ease-out"
-                            style={{ height: `${Math.min(100, volume * 2)}%` }}
+                            ref={visualizerRef}
+                            className="absolute bottom-0 left-0 right-0 bg-green-500/40 transition-none"
+                            style={{ height: '0%' }}
                         />
                     )}
 
